@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-# ✅ Move this to the top before any other Streamlit commands!
+# ✅ Set page configuration
 st.set_page_config(page_title="File Converter", layout="wide")
 
 # 🔹 Add a watermark using CSS
@@ -34,43 +34,62 @@ files = st.file_uploader("Upload CSV or Excel Files", type=["csv", "xlsx"], acce
 if files:
     for file in files:
         ext = file.name.split(".")[-1]
-        df = pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
-
+        
+        # ✅ Load the file safely
+        try:
+            df = pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
+        except Exception as e:
+            st.error(f"Error loading file: {e}")
+            continue  # Skip this file and move to the next
+        
         st.subheader(f"{file.name} Preview")
         st.dataframe(df.head())
 
+        # ✅ Remove Duplicates
         if st.checkbox(f"Remove Duplicates - {file.name}"):
             df.drop_duplicates(inplace=True)
             st.success("Duplicates Removed")
             st.dataframe(df.head())
 
+        # ✅ Fill Missing Values
         if st.checkbox(f"Fill Missing Values - {file.name}"):
-            df.fillna(df.select_dtypes(include=["number"]).mean(), inplace=True)
-            st.success("Missing Values Filled")
-            st.dataframe(df.head())
+            numeric_cols = df.select_dtypes(include=["number"])
+            if not numeric_cols.empty:
+                df.fillna(numeric_cols.mean(), inplace=True)
+                st.success("Missing Values Filled")
+                st.dataframe(df.head())
+            else:
+                st.warning("No numeric columns found to fill missing values.")
 
+        # ✅ Select Columns
         selected_columns = st.multiselect(f"Select Columns - {file.name}", df.columns, default=df.columns)
         df = df[selected_columns]
         st.dataframe(df.head())
 
-        if st.checkbox(f"Show Chart - {file.name}") and not df.select_dtypes(include="number").empty():
-            st.bar_chart(df.select_dtypes(include="number").iloc[:, :2])
+        # ✅ Show Chart (Fix: Correct `.empty` check)
+        numeric_data = df.select_dtypes(include="number")
+        if st.checkbox(f"Show Chart - {file.name}") and not numeric_data.empty:
+            st.bar_chart(numeric_data.iloc[:, :2])  # Select first 2 numeric columns to avoid errors
 
-        format_choice = st.radio(f"Convert {file.name} to:", ["csv", "Excel"], key=file.name)
+        # ✅ File Format Conversion
+        format_choice = st.radio(f"Convert {file.name} to:", ["CSV", "Excel"], key=file.name)
 
         output = BytesIO()
         if st.button(f"Download {file.name} as {format_choice}"):
-            if format_choice == "csv":
-                df.to_csv(output, index=False)
-                mime = "text/csv"
-                new_name = file.name.replace(ext, "csv")
-            else:
-                df.to_excel(output, index=False, engine='openpyxl')
-                mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                new_name = file.name.replace(ext, "xlsx")
+            try:
+                if format_choice.lower() == "csv":
+                    df.to_csv(output, index=False)
+                    mime = "text/csv"
+                    new_name = file.name.replace(ext, "csv")
+                else:
+                    df.to_excel(output, index=False, engine='openpyxl')
+                    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    new_name = file.name.replace(ext, "xlsx")
 
-            output.seek(0)
-            st.download_button("Download File", file_name=new_name, data=output, mime=mime)
+                output.seek(0)
+                st.download_button("Download File", file_name=new_name, data=output, mime=mime)
+            except Exception as e:
+                st.error(f"Error converting file: {e}")
 
 st.markdown(
     """
